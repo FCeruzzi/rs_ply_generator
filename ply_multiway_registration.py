@@ -5,13 +5,14 @@ import sys
 
 def load_point_clouds(voxel_size=0.0):
     pcds = []
-    for i in range(3):
+    for i in range(21):
         pcd = o3d.io.read_point_cloud("ply_files/pointcloud_%d.ply" % i)
         pcd_down = pcd.voxel_down_sample(voxel_size=voxel_size)
+        pcd_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2, max_nn=30))
         pcds.append(pcd_down)
     return pcds
     
-voxel_size = 0.02
+voxel_size = 0.01
 pcds_down = load_point_clouds(voxel_size)
 o3d.visualization.draw_geometries(pcds_down)
 
@@ -64,9 +65,8 @@ def full_registration(pcds, max_correspondence_distance_coarse,
 print("Full registration ...")
 max_correspondence_distance_coarse = voxel_size * 15
 max_correspondence_distance_fine = voxel_size * 1.5
-with o3d.utility.VerbosityContextManager(
-        o3d.utility.VerbosityLevel.Debug) as cm:
-    pose_graph = full_registration(pcds_down,
+
+pose_graph = full_registration(pcds_down,
                                    max_correspondence_distance_coarse,
                                    max_correspondence_distance_fine)
                                    
@@ -75,9 +75,8 @@ option = o3d.pipelines.registration.GlobalOptimizationOption(
     max_correspondence_distance=max_correspondence_distance_fine,
     edge_prune_threshold=0.25,
     reference_node=0)
-with o3d.utility.VerbosityContextManager(
-        o3d.utility.VerbosityLevel.Debug) as cm:
-    o3d.pipelines.registration.global_optimization(
+
+o3d.pipelines.registration.global_optimization(
         pose_graph,
         o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
         o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
@@ -88,3 +87,4 @@ for point_id in range(len(pcds_down)):
     print(pose_graph.nodes[point_id].pose)
     pcds_down[point_id].transform(pose_graph.nodes[point_id].pose)
 o3d.visualization.draw_geometries(pcds_down)
+
