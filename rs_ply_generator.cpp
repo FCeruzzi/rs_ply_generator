@@ -3,6 +3,9 @@
 #include <sstream>
 #include <iomanip>
 #include <limits>
+#include <string>
+ 
+
 
 // Constructor
 RsPlyGenerator::RsPlyGenerator(int argc, char* argv[])
@@ -26,7 +29,10 @@ void RsPlyGenerator::run()
     // Retrieve Last Position
     uint64_t last_position = pipeline_profile.get_device().as<rs2::playback>().get_position();
 
-    
+
+    int period_in_frames = 30;
+    int frame_cnt = 0;  
+    std::string pc_idx = "0";
     // Main Loop
     while(true){
         // Update Data
@@ -40,20 +46,31 @@ void RsPlyGenerator::run()
           show();
         }
         
-        // Tell pointcloud object to map to this color frame
-        pc.map_to(color_frame);
-
-        // Generate the pointcloud and texture mappings
-        //********* linea sotto da decommentare  **********
-        //points = pc.calculate(depth_frame);
+        if(frame_cnt == period_in_frames) {
         
-        //rs2::save_to_ply exporter("pointcloud.ply", pc);
-        //exporter.set_option(rs2::save_to_ply::OPTION_PLY_BINARY, 0.f);
-        //exporter.set_option(rs2::save_to_ply::OPTION_PLY_NORMALS, 1.f);
-        //pts.export_to_ply("pointcloud.ply", color_frame);
+            // Tell pointcloud object to map to this color frame
+            pc.map_to(color_frame);
+
+            // Generate the pointcloud and texture mappings
+            //********* linea sotto da decommentare  **********
+            points = pc.calculate(depth_frame);
+        
+            //rs2::save_to_ply exporter("pointcloud.ply", pc);
+            //exporter.set_option(rs2::save_to_ply::OPTION_PLY_BINARY, 0.f);
+            //exporter.set_option(rs2::save_to_ply::OPTION_PLY_NORMALS, 1.f);
+                
+            points.export_to_ply("pointcloud_" + pc_idx + ".ply", color_frame);
+        
+            pc_idx = std::to_string(1+std::stoi(pc_idx));
+            
+            frame_cnt = 0;
+        }
+        else {
+            frame_cnt++;
+        }
         
         // Key Check
-        const int32_t key = cv::waitKey(1);
+        const int32_t key = cv::waitKey(3);
         if( key == 'q' || key == 27){
             break;
         }
@@ -247,7 +264,7 @@ inline void RsPlyGenerator::updateColor()
 inline void RsPlyGenerator::updateDepth()
 {
     // Retrieve Depth Flame
-    depth_frame = frameset.get_depth_frame().apply_filter(color_map);
+    depth_frame = frameset.get_depth_frame();
     
     if( !depth_frame ){
         return;
@@ -357,11 +374,12 @@ inline void RsPlyGenerator::drawDepth()
 
     const void* data = depth_frame.get_data();
     // Create cv::Mat form Depth Frame
-    depth_mat = cv::Mat(depth_height, depth_width, CV_16UC1, (void*)data);
+    depth_mat = cv::Mat(depth_height, depth_width, CV_16UC1, (void*)data).clone();
     
     // Create OpenCV matrix of size (w,h) from the colorized depth data
+    const void* color_data = (depth_frame.apply_filter(color_map)).get_data();
     //depth_colored_mat = cv::Mat(cv::Size(depth_width, depth_height), cv::CV_8UC3, data, cv::Mat::AUTO_STEP);
-    depth_colored_mat = cv::Mat(depth_height, depth_width, CV_8UC3, (void*)data);
+    depth_colored_mat = cv::Mat(depth_height, depth_width, CV_8UC3, (void*)color_data);
 }
 
 // Draw Infrared
