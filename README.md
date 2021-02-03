@@ -9,7 +9,7 @@
 
 ## How to execute
 
-* ./rs_ply_generator -b=<.bag filename" -s=<Boolean value> -d=<Boolean value>
+* ./rs_ply_generator -b="\<.bag filename\>" -s=<Boolean value> -d=<Boolean value>
 
 For example,
 
