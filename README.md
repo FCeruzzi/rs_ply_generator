@@ -1,8 +1,8 @@
 # rs_ply_generator
 
-## building
+## How to build
 
-mkdir build
-cd build
-cmake ../
-make -j<number-of-cores+1>
+* mkdir build
+* cd build
+* cmake ../
+* make -j\<number-of-cores+1\> (for example, make -j4)
