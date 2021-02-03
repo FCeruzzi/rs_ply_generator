@@ -13,4 +13,4 @@
 
 For example,
 
-* .rs_ply_generator -b="20201218_rs1.bag" -s=false -d=true
+* ./rs_ply_generator -b="20201218_rs1.bag" -s=false -d=true
