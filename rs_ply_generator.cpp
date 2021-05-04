@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <limits>
 #include <string>
+#include <fstream>
  
 
 
@@ -30,9 +31,10 @@ void RsPlyGenerator::run()
     uint64_t last_position = pipeline_profile.get_device().as<rs2::playback>().get_position();
 
 
-    int period_in_frames = 30;
+    int period_in_frames = 100;
     int frame_cnt = 0;  
     std::string pc_idx = "0";
+    //int cont = 0;
     // Main Loop
     while(true){
         // Update Data
@@ -45,23 +47,67 @@ void RsPlyGenerator::run()
         if( display ){
           show();
         }
-        
+          
         if(frame_cnt == period_in_frames) {
-        
-            // Tell pointcloud object to map to this color frame
-            pc.map_to(color_frame);
 
-            // Generate the pointcloud and texture mappings
-            //********* linea sotto da decommentare  **********
-            points = pc.calculate(depth_frame);
-        
-            //rs2::save_to_ply exporter("pointcloud.ply", pc);
-            //exporter.set_option(rs2::save_to_ply::OPTION_PLY_BINARY, 0.f);
-            //exporter.set_option(rs2::save_to_ply::OPTION_PLY_NORMALS, 1.f);
-                
-            points.export_to_ply("pointcloud_" + pc_idx + ".ply", color_frame);
-        
-            pc_idx = std::to_string(1+std::stoi(pc_idx));
+            std::cout << "Immagine scelta dalla bag" << std::endl;
+            
+            cv::Mat color = cv::Mat( color_height, color_width, CV_8UC3, const_cast<void*>( color_frame.get_data() ) ).clone();                        
+            cv::cvtColor(color, color, cv::COLOR_RGB2BGR);
+            cv::Mat dep = cv::Mat(depth_height, depth_width, CV_16U, (void*)depth_frame.get_data()).clone();
+            
+            cv::Mat dst_rgb;//, dst_dep;
+            cv::resize(color, dst_rgb, cv::Size(512,512));//for inference
+            cv::imwrite("./segnet/image.png", dst_rgb);
+            
+            std::cout << "Python" << std::endl;
+
+            system("python3 ./segnet/test.py --save_dir ./segnet/mask/ --test_list ./segnet/to_mask.txt --resume ./model20.hdf5");
+            system("python3 ./segnet/inference.py");
+
+            cv::Mat clean_color = cv::imread("./segnet/inference/image.png");//RGB
+            
+            cv::Mat dst_color;
+            int newW = 1280;
+            int newH = 720;
+            cv::resize(clean_color, dst_color, cv::Size(newW,newH));
+
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_ptr (new pcl::PointCloud<pcl::PointXYZRGB>);
+            for (int i = 0; i < dst_color.rows; i++){
+                for (int j = 0; j < dst_color.cols; j++){
+                    ushort d = dep.ptr<ushort>(i)[j];//CV_16U
+                    if (d == 0)
+                        continue;
+                    pcl::PointXYZRGB p;
+                    p.x = double(i)/1000;
+                    p.y = double(j)/1000;
+                    p.z = double(d)/1000;
+
+                    // Get its color from rgb image
+                    // rgb is a three-channel RGB format picture, so get the colors in the following order.
+                    p.b = dst_color.ptr<uchar>(i)[j * 3]; //CV_8UC3
+                    p.g = dst_color.ptr<uchar>(i)[j * 3 + 1];
+                    p.r = dst_color.ptr<uchar>(i)[j * 3 + 2];
+
+                    // Add p to the point cloud
+                    if(p.r != 0 || p.g != 0 || p.b != 0)
+                        cloud_ptr->points.push_back(p);
+                }
+            }
+            // Set up and save the point cloud
+            cloud_ptr->height = 1;
+            cloud_ptr->width = cloud_ptr->points.size();
+            std::cout << "point cloud size = " << cloud_ptr->points.size() << std::endl;
+            cloud_ptr->is_dense = true;
+            cloud_ptr->points.resize(cloud_ptr->width * cloud_ptr->height);
+            try {
+                //Save point cloud image
+                pcl::io::savePLYFileASCII("./pointcloud_" + pc_idx + ".ply", *cloud_ptr);
+                pc_idx = std::to_string(1+std::stoi(pc_idx));
+            }
+            catch (pcl::IOException &e) {
+                std::cout << e.what() << std::endl;
+            }        
             
             frame_cnt = 0;
         }
@@ -82,6 +128,51 @@ void RsPlyGenerator::run()
         }
         last_position = current_position;
     }
+}
+
+void RsPlyGenerator::matwrite(const std::string& filename, const cv::Mat& mat)
+{
+    std::ofstream fs(filename, std::fstream::binary);
+
+    // Header
+    int type = mat.type();
+    int channels = mat.channels();
+    fs.write((char*)&mat.rows, sizeof(int));    // rows
+    fs.write((char*)&mat.cols, sizeof(int));    // cols
+    fs.write((char*)&type, sizeof(int));        // type
+    fs.write((char*)&channels, sizeof(int));    // channels
+
+    // Data
+    if (mat.isContinuous())
+    {
+        fs.write(mat.ptr<char>(0), (mat.dataend - mat.datastart));
+    }
+    else
+    {
+        int rowsz = CV_ELEM_SIZE(type) * mat.cols;
+        for (int r = 0; r < mat.rows; ++r)
+        {
+            fs.write(mat.ptr<char>(r), rowsz);
+        }
+    }
+}
+
+cv::Mat RsPlyGenerator::matread(const std::string& filename)
+{
+    std::ifstream fs(filename, std::fstream::binary);
+
+    // Header
+    int rows, cols, type, channels;
+    fs.read((char*)&rows, sizeof(int));         // rows
+    fs.read((char*)&cols, sizeof(int));         // cols
+    fs.read((char*)&type, sizeof(int));         // type
+    fs.read((char*)&channels, sizeof(int));     // channels
+
+    // Data
+    cv::Mat mat(rows, cols, type);
+    fs.read((char*)mat.data, CV_ELEM_SIZE(type) * rows * cols);
+
+    return mat;
 }
 
 // Initialize

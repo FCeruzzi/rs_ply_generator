@@ -4,6 +4,9 @@
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
 #include <librealsense2/hpp/rs_export.hpp>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/io/ply_io.h>
 
 #include <boost/thread/thread.hpp>
 
@@ -145,6 +148,13 @@ private:
 
     // Save Infrared
     inline void saveInfrared();
+
+    //read matrix
+    cv::Mat matread(const std::string& filename);
+
+    //write matrix
+    void matwrite(const std::string& filename, const cv::Mat& mat);
+
 };
 
 #endif // __RS_PLY_GENERATOR__
