@@ -149,12 +149,6 @@ private:
     // Save Infrared
     inline void saveInfrared();
 
-    //read matrix
-    cv::Mat matread(const std::string& filename);
-
-    //write matrix
-    void matwrite(const std::string& filename, const cv::Mat& mat);
-
 };
 
 #endif // __RS_PLY_GENERATOR__
