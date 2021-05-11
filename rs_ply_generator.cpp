@@ -94,12 +94,30 @@ void RsPlyGenerator::run()
                         cloud_ptr->points.push_back(p);
                 }
             }
+            
+            float theta = 1.5*M_PI;
+            float phi = 3*M_PI;
+            Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+            transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitZ()));
+            transform.rotate (Eigen::AngleAxisf (phi, Eigen::Vector3f::UnitX()));
+            pcl::transformPointCloud (*cloud_ptr, *cloud_ptr, transform);
+            
+            /*
+            float theta = 0.5 * M_PI;
+            float phi = M_PI;
+            Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+            transform.rotate (Eigen::AngleAxisf (phi, Eigen::Vector3f::UnitX()));
+            transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitZ()));
+            pcl::transformPointCloud (*cloud_ptr, *cloud_ptr, transform);
+            */
+
             // Set up and save the point cloud
             cloud_ptr->height = 1;
             cloud_ptr->width = cloud_ptr->points.size();
             std::cout << "point cloud size = " << cloud_ptr->points.size() << std::endl;
             cloud_ptr->is_dense = true;
             cloud_ptr->points.resize(cloud_ptr->width * cloud_ptr->height);
+
             try {
                 //Save point cloud image
                 pcl::io::savePLYFileASCII("./pointcloud_" + pc_idx + ".ply", *cloud_ptr);

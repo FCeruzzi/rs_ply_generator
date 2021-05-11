@@ -8,6 +8,11 @@
 #include <pcl/point_types.h>
 #include <pcl/io/ply_io.h>
 
+#include <pcl/point_cloud.h>
+#include <pcl/console/parse.h>
+#include <pcl/common/transforms.h> // pcl::transformPointCloud uses this header file
+#include <pcl/visualization/pcl_visualizer.h>
+
 #include <boost/thread/thread.hpp>
 
 #include <array>
