@@ -4,16 +4,18 @@
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
 #include <librealsense2/hpp/rs_export.hpp>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include <pcl/io/ply_io.h>
-
-#include <pcl/point_cloud.h>
-#include <pcl/console/parse.h>
-#include <pcl/common/transforms.h> // pcl::transformPointCloud uses this header file
-#include <pcl/visualization/pcl_visualizer.h>
 
 #include <boost/thread/thread.hpp>
+
+
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/common/common.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/point_types.h>
+#include <pcl/common/transforms.h> // pcl::transformPointCloud uses this header file
+
 
 #include <array>
 #ifdef WIN32
@@ -154,7 +156,8 @@ private:
     // Save Infrared
     inline void saveInfrared();
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr points_to_pcl(const rs2::points& points, const rs2::video_frame& color, cv::Mat& filtered);
+    std::tuple<uint8_t, uint8_t, uint8_t> get_texcolor(rs2::video_frame texture, rs2::texture_coordinate texcoords);
 };
 
 #endif // __RS_PLY_GENERATOR__
-

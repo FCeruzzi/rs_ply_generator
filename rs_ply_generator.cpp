@@ -24,6 +24,57 @@ RsPlyGenerator::~RsPlyGenerator()
     finalize();
 }
 
+std::tuple<uint8_t, uint8_t, uint8_t> RsPlyGenerator::get_texcolor(rs2::video_frame texture, rs2::texture_coordinate texcoords){
+    const int w = texture.get_width(), h = texture.get_height();
+    
+    // convert normals [u v] to basic coords [x y]
+    int x = std::min(std::max(int(texcoords.u*w + .5f), 0), w - 1);
+    int y = std::min(std::max(int(texcoords.v*h + .5f), 0), h - 1);
+
+    int idx = x * texture.get_bytes_per_pixel() + y * texture.get_stride_in_bytes();
+    const auto texture_data = reinterpret_cast<const uint8_t*>(texture.get_data());
+    return std::tuple<uint8_t, uint8_t, uint8_t>(texture_data[idx], texture_data[idx+1], texture_data[idx+2]);
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr RsPlyGenerator::points_to_pcl(const rs2::points& points, const rs2::video_frame& color, cv::Mat& filtered){
+        
+    auto sp = points.get_profile().as<rs2::video_stream_profile>();
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    
+    // Config of PCL Cloud object
+    cloud->width = static_cast<uint32_t>(sp.width());//information about sensor generated pointcloud to initialize filtered pointcloud
+    cloud->height = static_cast<uint32_t>(sp.height());
+    cloud->is_dense = false;
+    cloud->points.resize(points.size());//to adjust to points number
+
+    auto tex_coords = points.get_texture_coordinates();// useful to get the color in the get_text_color function
+    auto vertices = points.get_vertices();// vertices = points of the pointcloud returned by sensor
+
+    int idx = 0;//useful for sensor pointcloud scan, because vertices is a one-dimensional array
+    for(int i = 0; i < cloud->height; ++i){
+      for(int j = 0; j < cloud->width; ++j){//mask scan
+        double c = (double)filtered.at<uchar>(i,j);//take mask pixel value, because mask have only one channel is a char
+        if(c >= 60){//>=60 is a threshold for the mask because from 512 to 1280 the resize blurs a bit
+          //if it belongs it take its point inside sensor pointcloud and put it in the new one
+          cloud->points[idx].x = vertices[idx].x;
+          cloud->points[idx].y = vertices[idx].y;
+          cloud->points[idx].z = vertices[idx].z;
+
+          //from here it take colors
+          std::tuple<uint8_t, uint8_t, uint8_t> current_color;
+          //extract color from original pointcloud
+          current_color = get_texcolor(color, tex_coords[idx]);
+
+          cloud->points[idx].r = std::get<0>(current_color);
+          cloud->points[idx].g = std::get<1>(current_color);
+          cloud->points[idx].b = std::get<2>(current_color);
+        }
+        idx++;
+      }
+    }
+   return cloud;
+}
+
 // Processing
 void RsPlyGenerator::run()
 {
@@ -49,87 +100,38 @@ void RsPlyGenerator::run()
         }
           
         if(frame_cnt == period_in_frames) {
+            pc.map_to(color_frame);
+            points = pc.calculate(depth_frame);
 
-            std::cout << "Immagine scelta dalla bag" << std::endl;
-            
-            cv::Mat color = cv::Mat( color_height, color_width, CV_8UC3, const_cast<void*>( color_frame.get_data() ) ).clone();                        
-            cv::cvtColor(color, color, cv::COLOR_RGB2BGR);
-            cv::Mat dep = cv::Mat(depth_height, depth_width, CV_16U, (void*)depth_frame.get_data()).clone();
-            
-            cv::Mat dst_rgb;//, dst_dep;
+            //Edited part
+            cv::Mat dst_rgb;
+            //Save color frame
+            cv::Mat color = cv::Mat( color_frame.as<rs2::video_frame>().get_height(), color_frame.as<rs2::video_frame>().get_width(), CV_8UC3, const_cast<void*>( color_frame.get_data() ) ).clone();
             cv::resize(color, dst_rgb, cv::Size(512,512));//for inference
             cv::imwrite("./segnet/image.png", dst_rgb);
-            
             std::cout << "Python" << std::endl;
-
-            system("python3 ./segnet/test.py --save_dir ./segnet/mask/ --test_list ./segnet/to_mask.txt --resume ./model20.hdf5");
+            //Inference
+            system("python3 ./segnet/test.py --save_dir ./segnet/mask/ --test_list ./segnet/to_mask.txt --resume ./model.hdf5");
             system("python3 ./segnet/inference.py");
-
-            cv::Mat clean_color = cv::imread("./segnet/inference/image.png");//RGB
-            
-            cv::Mat dst_color;
+            //Load mask
+            cv::Mat mask = cv::imread("./segnet/mask/image.png", cv::IMREAD_GRAYSCALE); 
+            cv::Mat mask_res;
             int newW = 1280;
             int newH = 720;
-            cv::resize(clean_color, dst_color, cv::Size(newW,newH));
-
-            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_ptr (new pcl::PointCloud<pcl::PointXYZRGB>);
-            for (int i = 0; i < dst_color.rows; i++){
-                for (int j = 0; j < dst_color.cols; j++){
-                    ushort d = dep.ptr<ushort>(i)[j];//CV_16U
-                    if (d == 0)
-                        continue;
-                    pcl::PointXYZRGB p;
-                    p.x = double(i)/1000;
-                    p.y = double(j)/1000;
-                    p.z = double(d)/1000;
-
-                    // Get its color from rgb image
-                    // rgb is a three-channel RGB format picture, so get the colors in the following order.
-                    p.b = dst_color.ptr<uchar>(i)[j * 3]; //CV_8UC3
-                    p.g = dst_color.ptr<uchar>(i)[j * 3 + 1];
-                    p.r = dst_color.ptr<uchar>(i)[j * 3 + 2];
-
-                    // Add p to the point cloud
-                    if(p.r != 0 || p.g != 0 || p.b != 0)
-                        cloud_ptr->points.push_back(p);
-                }
-            }
+            //Mask resize
+            cv::resize(mask, mask_res, cv::Size(newW,newH));
+            //Building pointcloud
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = points_to_pcl(points, color_frame, mask_res);
             
-            float theta = 1.5*M_PI;
-            float phi = 3*M_PI;
-            Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-            transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitZ()));
-            transform.rotate (Eigen::AngleAxisf (phi, Eigen::Vector3f::UnitX()));
-            pcl::transformPointCloud (*cloud_ptr, *cloud_ptr, transform);
-            
-            /*
-            float theta = 0.5 * M_PI;
             float phi = M_PI;
             Eigen::Affine3f transform = Eigen::Affine3f::Identity();
             transform.rotate (Eigen::AngleAxisf (phi, Eigen::Vector3f::UnitX()));
-            transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitZ()));
-            pcl::transformPointCloud (*cloud_ptr, *cloud_ptr, transform);
-            */
+            pcl::transformPointCloud(*cloud, *cloud, transform);
 
-            // Set up and save the point cloud
-            cloud_ptr->height = 1;
-            cloud_ptr->width = cloud_ptr->points.size();
-            std::cout << "point cloud size = " << cloud_ptr->points.size() << std::endl;
-            cloud_ptr->is_dense = true;
-            cloud_ptr->points.resize(cloud_ptr->width * cloud_ptr->height);
-
-            try {
-                //Save point cloud image
-                pcl::io::savePLYFileASCII("./pointcloud_" + pc_idx + ".ply", *cloud_ptr);
-                pc_idx = std::to_string(1+std::stoi(pc_idx));
-            }
-            catch (pcl::IOException &e) {
-                std::cout << e.what() << std::endl;
-            }        
-            
+            pcl::io::savePLYFileASCII("./pointcloud_" + pc_idx + ".ply", *cloud);
+            pc_idx = std::to_string(1+std::stoi(pc_idx));
             frame_cnt = 0;
-        }
-        else {
+        }else {
             frame_cnt++;
         }
         
